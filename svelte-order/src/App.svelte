@@ -1,13 +1,17 @@
 <script>
+	import {currency} from "./utils/format";
+
 	export let name;
 
 	import { db } from './firebaseApp';
-	import { collection, onSnapshot } from 'firebase/firestore';
+	import { addDoc, collection, doc, onSnapshot } from 'firebase/firestore';
 	import { onMount } from 'svelte';
 
 	let menu = [];
 
 	const menuRef = collection( db, 'menu' );
+	let orderId = null;
+	let currentOrder = null;
 
 	onMount(()=>{
 		const unsubscribe = onSnapshot( menuRef, snapshot => {
@@ -51,6 +55,47 @@
 		}
 		order = { ...order };
 	}
+
+	function submit() {
+		if( sum === 0 ) {
+			alert( '상품을 담아주세요' );
+			return;
+		}
+		const ordersRef = collection( db, 'orders' );
+		addDoc( ordersRef, {
+			...filteredOrder,
+            sum,
+			status: '주문완료',
+            date: new Date(),
+		} )
+		.then( doc => {
+			orderId = doc.id;
+		} )
+		.catch(console.warn);
+	}
+
+	$: {
+		if( orderId ) {
+			const orderRef = doc( db, `orders/${orderId}` );
+			onSnapshot(orderRef, snapshot => {
+				currentOrder = snapshot.data();
+			});
+		}
+	}
+
+	$: {
+		if( currentOrder && currentOrder.status === '픽업완료' ) {
+			orderId = null;
+			currentOrder = null;
+			order = {
+				detail: menu.map( item => ({
+					...item,
+					count: 0,
+				}))
+			}
+		}
+	}
+
 </script>
 
 <main>
@@ -58,10 +103,12 @@
 	<ul>
 		{#each menu as item(item.id)}
 		<li>
-			{item.name} / {item.price}원
+			{item.name} / {currency(item.price)}원
 
-			<button on:click={() => removeItem( item.name )}>-</button>
-			<button on:click={() => addItem( item.name )}>+</button>
+			{#if !currentOrder}
+				<button on:click={() => removeItem( item.name )}>-</button>
+				<button on:click={() => addItem( item.name )}>+</button>
+			{/if}
 		</li>
 		{/each}
 	</ul>
@@ -75,15 +122,18 @@
 		{/if}
 		{#each filteredOrder.detail as item(item.name)}
 			<li>
-				{ item.name } &times; {item.count }잔 = { item.price * item.count }원
+				{ item.name } &times; {item.count }잔 = { currency(item.price * item.count) }원
 			</li>
 		{/each}
 	</ul>
 
-	<p>총 금액: {sum}원</p>
+	<p>총 금액: {currency(sum)}원</p>
 
-	<button>주문하기</button>
-
+	{#if currentOrder }
+		<div>상태 : {currentOrder.status}</div>
+	{:else}
+		<button on:click={submit}>주문하기</button>
+	{/if}
 </main>
 
 <style>
